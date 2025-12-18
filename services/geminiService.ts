@@ -6,37 +6,29 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const discoverLeadsEngine = async (niche: string, country: string, mode: string): Promise<Partial<Lead>[]> => {
   try {
-    const model = mode === 'neural' ? "gemini-3-pro-preview" : "gemini-3-flash-preview";
+    const model = "gemini-3-pro-preview";
     
     const response = await ai.models.generateContent({
       model: model,
-      contents: `VOCÊ É O SISTEMA DE VALIDAÇÃO JBNEXO (jbnexo.com).
-      Sua tarefa é minerar 10 leads de ALTA QUALIDADE para: "${niche}" em "${country}".
+      contents: `VOCÊ É O AGENTE DE BUSCA EM TEMPO REAL JBNEXO (jbnexo.com).
+      Sua missão é localizar 10 leads REAIS para o nicho "${niche}" em "${country}".
 
-      FILTRO DE WHATSAPP (CRÍTICO - TOLERÂNCIA ZERO):
-      1. APENAS forneça leads com números de telefone REAIS e ATIVOS no WhatsApp.
-      2. O campo 'phoneNumber' deve conter APENAS NÚMEROS (Ex: 5511988887777).
-      3. PROIBIDO: Números sequenciais (123456...), números repetidos (99999...), ou números de exemplo/fictícios.
-      4. Se você não tiver 100% de certeza que o número é um contato comercial real daquela empresa, NÃO retorne o lead. É melhor retornar menos leads do que leads inválidos.
-      5. Formato: Código do País + DDD + Número.
+      PROTOCOLO DE VERACIDADE E IDIOMA (CRÍTICO):
+      1. Use a ferramenta GOOGLE SEARCH para validar se a pessoa realmente trabalha na empresa e se o telefone existe.
+      2. IDIOMA: Detecte o idioma predominante de "${country}" e gere o 'localizedPitch' e 'emailSubject' NESSE IDIOMA. Ex: Se for Brasil, use Português. Se for EUA, use Inglês.
+      3. O número de telefone deve ser extraído de fontes reais (sites, diretórios).
+      4. O campo 'localizedPitch' deve ser um script de vendas matador para marcar uma call de 15 min no link: https://calendly.com/bruno-jbnexo/new-meeting.
 
-      DIRETRIZES DE ABORDAGEM:
-      - Objetivo: Vídeo chamada de 15 minutos via Google Meet/Zoom.
-      - Autoridade: JBNEXO (jbnexo.com) - Especialistas em escala de faturamento B2B.
-      - Call to Action: Link para agendamento direto: https://calendly.com/bruno-jbnexo/new-meeting.
-      - Idioma: O script deve estar no idioma predominante de ${country}.
-
-      DATA PROTOCOL (JSON):
-      - name: Nome completo.
-      - company: Empresa real.
-      - headline: Cargo.
-      - email: E-mail corporativo verificado.
-      - phoneNumber: String numérica pura (Ex: 5511999998888).
-      - emailSubject: Assunto do e-mail impactante.
-      - localizedPitch: Texto de abordagem personalizado.
-      - conversionProb: Score de 0-100.
-      - integrity: Probabilidade de validade do WhatsApp (0-100).`,
+      DATA FORMAT (JSON):
+      - name: Nome Real.
+      - company: Empresa Real.
+      - email: E-mail profissional.
+      - phoneNumber: APENAS NÚMEROS (Ex: 5511...).
+      - emailSubject: Assunto impactante no idioma local.
+      - localizedPitch: Script de abordagem no idioma local.
+      - integrity: Score de 0-100 de certeza da busca real.`,
       config: {
+        tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,
@@ -50,20 +42,18 @@ export const discoverLeadsEngine = async (niche: string, country: string, mode: 
               phoneNumber: { type: Type.STRING },
               emailSubject: { type: Type.STRING },
               localizedPitch: { type: Type.STRING },
-              conversionProb: { type: Type.NUMBER },
               integrity: { type: Type.NUMBER }
             },
-            required: ["name", "company", "email", "phoneNumber", "localizedPitch", "emailSubject", "integrity"]
+            required: ["name", "company", "phoneNumber", "integrity", "localizedPitch", "emailSubject"]
           }
         }
       }
     });
     
-    // Filtragem adicional de segurança no lado do cliente
     const rawLeads = JSON.parse(response.text || '[]');
-    return rawLeads.filter((l: any) => l.integrity > 85 && l.phoneNumber.length >= 10);
+    return rawLeads.filter((l: any) => l.integrity >= 75 && l.phoneNumber && l.phoneNumber.length >= 10);
   } catch (error) {
-    console.error("Erro no motor de mineração JBNEXO", error);
+    console.error("Falha na mineração multilíngue JBNEXO", error);
     return [];
   }
 };
