@@ -123,15 +123,21 @@ const App: React.FC = () => {
     link.click();
   };
 
+  const deleteLead = (id: string) => {
+    setLeads(prev => prev.filter(l => l.id !== id));
+  };
+
+  const toggleContacted = (id: string) => {
+    setLeads(prev => prev.map(l => l.id === id ? { ...l, status: l.status === 'contacted' ? 'new' : 'contacted' } as Lead : l));
+  };
+
   const handleWhatsAppClick = (lead: Lead) => {
     const cleanNumber = lead.phoneNumber?.replace(/\D/g, '');
     const url = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(lead.localizedPitch)}`;
     window.open(url, '_blank');
-    markAsContacted(lead.id);
-  };
-
-  const markAsContacted = (id: string) => {
-    setLeads(prev => prev.map(l => l.id === id ? { ...l, status: 'contacted' as LeadStatus } : l));
+    if (lead.status !== 'contacted') {
+      setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, status: 'contacted' as LeadStatus } : l));
+    }
   };
 
   const filteredLeads = useMemo(() => {
@@ -213,20 +219,30 @@ const App: React.FC = () => {
         <div className="flex-grow overflow-y-auto p-12 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-10 custom-scrollbar">
           {filteredLeads.map(lead => (
             <div key={lead.id} className="bg-[#0c0c0c] border border-[#18181b] rounded-[3rem] p-8 hover:border-indigo-500/50 transition-all duration-500 group flex flex-col min-h-[480px] relative overflow-hidden">
-              <div className="mb-6 flex justify-between items-center">
+              {/* Botão de Exclusão */}
+              <button 
+                onClick={() => deleteLead(lead.id)} 
+                className="absolute top-8 right-8 text-zinc-800 hover:text-rose-500 transition-colors z-10"
+              >
+                <i className="fa-solid fa-trash-can text-lg"></i>
+              </button>
+
+              <div className="mb-6 flex justify-between items-center pr-8">
                 <span className={`text-[9px] font-black px-4 py-1.5 rounded-full uppercase tracking-tighter border ${lead.status === 'contacted' ? 'bg-green-950/40 text-green-400 border-green-900/30' : 'bg-indigo-950/40 text-indigo-400 border-indigo-900/30'}`}>
                   {lead.status === 'contacted' ? '✅ Contatado' : 'Validado Grounding'}
                 </span>
                 <span className="text-[10px] font-black text-green-500">{lead.integrity}% REAL</span>
               </div>
 
-              <div className="flex items-center space-x-6 mb-8">
-                <div className="w-16 h-16 bg-zinc-900 rounded-3xl flex items-center justify-center text-2xl font-black text-white border border-zinc-800">
+              <div className="flex items-start space-x-6 mb-8">
+                <div className="w-16 h-16 bg-zinc-900 rounded-3xl flex items-center justify-center text-2xl font-black text-white border border-zinc-800 shrink-0">
                   {lead.name.charAt(0)}
                 </div>
                 <div className="min-w-0 flex-1">
-                   <h3 className="text-lg font-black text-white uppercase tracking-tight group-hover:text-indigo-400 transition-colors truncate">{lead.name}</h3>
-                   <div className="text-[10px] font-bold text-indigo-500/70 uppercase tracking-widest truncate">{lead.company}</div>
+                   {/* Nome Inteiro - Sem Truncate */}
+                   <h3 className="text-lg font-black text-white uppercase tracking-tight group-hover:text-indigo-400 transition-colors break-words">{lead.name}</h3>
+                   {/* Empresa Inteira - Sem Truncate */}
+                   <div className="text-[10px] font-bold text-indigo-500/70 uppercase tracking-widest break-words">{lead.company}</div>
                 </div>
               </div>
 
@@ -248,6 +264,14 @@ const App: React.FC = () => {
                     </button>
                     <button onClick={() => handleWhatsAppClick(lead)} className="w-12 h-12 rounded-2xl bg-indigo-600/10 flex items-center justify-center text-indigo-500 hover:bg-indigo-600 hover:text-white transition-all border border-indigo-500/20 shadow-lg">
                       <i className="fa-brands fa-whatsapp text-2xl"></i>
+                    </button>
+                    {/* Botão Marcar/Desmarcar Chamado */}
+                    <button 
+                      onClick={() => toggleContacted(lead.id)} 
+                      className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all ${lead.status === 'contacted' ? 'bg-green-600/20 text-green-500 border border-green-500/30' : 'bg-zinc-900 text-zinc-700 hover:text-white'}`}
+                      title={lead.status === 'contacted' ? 'Marcar como não chamado' : 'Marcar como já chamado'}
+                    >
+                      <i className="fa-solid fa-check-double text-lg"></i>
                     </button>
                  </div>
                  <div className="text-[9px] font-black text-zinc-900 uppercase italic">JBNEXO NODE</div>
