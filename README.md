@@ -3,7 +3,12 @@
 
 A JBNEXO Growth Node é uma ferramenta de elite para inteligência de dados e prospecção automatizada, focada em converter leads de alto ticket para a agência JBNEXO. Desenvolvida com tecnologia de ponta em Inteligência Artificial, a plataforma simula o comportamento de um minerador de dados sênior para encontrar oportunidades reais de negócio.
 
-**Desenvolvido por: [brunxsousa](https://github.com/brunxsousa)**
+---
+
+## 📸 Visualização do Projeto
+
+![JBNEXO Interface](https://raw.githubusercontent.com/brunxsousa/assets/main/jbnexo-screenshot.png)
+*Interface futurista com processamento neural de leads em tempo real.*
 
 ---
 
@@ -44,8 +49,10 @@ Implementamos um sistema de limpeza e validação rigorosa para números de tele
 
 ---
 
-## 🛡 Segurança e Qualidade
-A ferramenta possui um filtro de integridade no `geminiService.ts` que descarta automaticamente qualquer lead que tenha score de integridade abaixo de 85%, garantindo que você gaste tempo apenas com contatos que realmente possuem WhatsApp ativo.
+## 👨‍💻 Desenvolvedor
+**Desenvolvido por: [brunxsousa](https://github.com/brunxsousa)**
+
+📸 **Instagram:** [@brunxsousa](https://instagram.com/brunxsousa)
 
 ---
 
