@@ -1,0 +1,7 @@
+{
+  "name": "JBNEXO Growth Node",
+  "description": "The elite growth engine for JBNEXO Marketing Agency. High-ticket lead mining, neural data extraction, and automated Calendly-focused outreach.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
