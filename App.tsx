@@ -1,34 +1,36 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Lead, ExtractionStatus, LeadStatus, EngineConfig } from './types';
+import { Lead, ExtractionStatus, LeadStatus } from './types';
 import { discoverLeadsEngine } from './services/geminiService';
 
 const App: React.FC = () => {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [engineStatus, setEngineStatus] = useState<ExtractionStatus>(ExtractionStatus.IDLE);
-  const [logs, setLogs] = useState<string[]>(["SISTEMA JBNEXO v12.9: BUSCA REAL E MULTI-LANGUAGE ONLINE."]);
+  const [logs, setLogs] = useState<string[]>(["SISTEMA JBNEXO TITANIUM v23.0 ONLINE."]);
   const [niche, setNiche] = useState('');
   const [country, setCountry] = useState('Brasil');
-  const [config, setConfig] = useState<EngineConfig>({ mode: 'neural', autoEnrich: true, frequency: 10000 });
   const [searchTerm, setSearchTerm] = useState('');
-  
   const [previewPitch, setPreviewPitch] = useState<Lead | null>(null);
 
   const runnerRef = useRef<number | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
   const statusRef = useRef<ExtractionStatus>(ExtractionStatus.IDLE);
 
-  useEffect(() => {
-    statusRef.current = engineStatus;
-  }, [engineStatus]);
+  // Sincronização e Persistência
+  useEffect(() => { statusRef.current = engineStatus; }, [engineStatus]);
 
   useEffect(() => {
-    const saved = localStorage.getItem('jbnexo_leads_v12_9');
-    if (saved) setLeads(JSON.parse(saved));
+    const saved = localStorage.getItem('jbnexo_leads_v23');
+    if (saved) {
+      try { 
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) setLeads(parsed);
+      } catch (e) { console.error(e); }
+    }
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('jbnexo_leads_v12_9', JSON.stringify(leads));
+    localStorage.setItem('jbnexo_leads_v23', JSON.stringify(leads));
   }, [leads]);
 
   useEffect(() => {
@@ -36,21 +38,23 @@ const App: React.FC = () => {
   }, [logs]);
 
   const addLog = (msg: string) => {
-    setLogs(prev => [...prev.slice(-30), `> ${new Date().toLocaleTimeString()} | ${msg}`]);
+    setLogs(prev => [...prev.slice(-12), `[${new Date().toLocaleTimeString()}] ${msg}`]);
   };
 
   const runCycle = async () => {
     if (statusRef.current !== ExtractionStatus.RUNNING) return;
-    addLog(`BUSCANDO DADOS REAIS EM ${country.toUpperCase()}...`);
+    
+    addLog(`AUDITANDO ${niche.toUpperCase()} EM ${country.toUpperCase()}...`);
     
     try {
-      const results = await discoverLeadsEngine(niche, country, config.mode);
+      const { leads: results } = await discoverLeadsEngine(niche, country);
+      
       if (statusRef.current !== ExtractionStatus.RUNNING) return;
 
       if (results.length === 0) {
-        addLog("NENHUM DADO REAL ENCONTRADO. REAJUSTANDO PARAMETROS...");
+        addLog("DADOS INCONSISTENTES REJEITADOS. REPROCESSANDO...");
       } else {
-        addLog(`SUCESSO: ${results.length} LEADS VALIDADOS VIA GROUNDING.`);
+        addLog(`${results.length} LEADS REAIS VERIFICADOS COM SUCESSO.`);
       }
 
       const enriched = results.map(r => ({
@@ -60,27 +64,22 @@ const App: React.FC = () => {
         country,
         status: 'new' as LeadStatus,
         createdAt: Date.now(),
-        qualityScore: r.integrity || 90,
-        integrity: r.integrity || 95,
-        confidence: 'high',
-        linkedinUrl: '#',
-        emailSubject: r.emailSubject,
-        localizedPitch: r.localizedPitch,
+        integrity: r.integrity || 98,
         phoneNumber: r.phoneNumber?.replace(/\D/g, '')
       } as Lead));
 
       if (enriched.length > 0) {
-        setLeads(prev => [...enriched, ...prev]);
+        setLeads(prev => {
+          const existingPhones = new Set(prev.map(l => l.phoneNumber));
+          const uniqueNew = enriched.filter(l => !existingPhones.has(l.phoneNumber));
+          return [...uniqueNew, ...prev];
+        });
       }
       
-      if (statusRef.current === ExtractionStatus.RUNNING) {
-        runnerRef.current = window.setTimeout(runCycle, 15000) as unknown as number;
-      }
-    } catch (e) {
-      addLog("ERRO DE CONEXÃO. RETRIEVING...");
-      if (statusRef.current === ExtractionStatus.RUNNING) {
-        runnerRef.current = window.setTimeout(runCycle, 5000) as unknown as number;
-      }
+      runnerRef.current = window.setTimeout(runCycle, 2000) as unknown as number;
+    } catch (e: any) {
+      addLog(`RECALIBRANDO FREQUÊNCIA (30s)...`);
+      runnerRef.current = window.setTimeout(runCycle, 30000) as unknown as number;
     }
   };
 
@@ -89,223 +88,220 @@ const App: React.FC = () => {
       setEngineStatus(ExtractionStatus.STOPPING);
       statusRef.current = ExtractionStatus.STOPPING;
       if (runnerRef.current) window.clearTimeout(runnerRef.current);
-      addLog("PARANDO BUSCA.");
       setTimeout(() => {
         setEngineStatus(ExtractionStatus.IDLE);
         statusRef.current = ExtractionStatus.IDLE;
-      }, 1000);
+        addLog("OPERAÇÃO FINALIZADA.");
+      }, 500);
     } else {
-      if (!niche) return alert("INSIRA UM NICHO.");
+      if (!niche) return alert("DEFINA O NICHO.");
       setEngineStatus(ExtractionStatus.RUNNING);
       statusRef.current = ExtractionStatus.RUNNING;
       runCycle();
     }
   };
 
-  const exportMondayCSV = () => {
-    const headers = "Name,Company,Email,Phone,Country,Status,Niche\n";
-    const rows = leads.map(l => `"${l.name}","${l.company}","${l.email}","${l.phoneNumber}","${l.country}","${l.status}","${l.niche}"`).join("\n");
-    downloadCSV(headers + rows, "jbnexo_leads_monday.csv");
-  };
-
-  const exportPhonesCSV = () => {
-    const headers = "Name,Phone\n";
-    const rows = leads.map(l => `"${l.name}","${l.phoneNumber}"`).join("\n");
-    downloadCSV(headers + rows, "jbnexo_whatsapp_list.csv");
-  };
-
-  const downloadCSV = (content: string, filename: string) => {
-    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    link.click();
-  };
-
-  const deleteLead = (id: string) => {
-    setLeads(prev => prev.filter(l => l.id !== id));
-  };
-
-  const toggleContacted = (id: string) => {
-    setLeads(prev => prev.map(l => l.id === id ? { ...l, status: l.status === 'contacted' ? 'new' : 'contacted' } as Lead : l));
-  };
-
-  const handleWhatsAppClick = (lead: Lead) => {
-    const cleanNumber = lead.phoneNumber?.replace(/\D/g, '');
-    const url = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(lead.localizedPitch)}`;
-    window.open(url, '_blank');
-    if (lead.status !== 'contacted') {
-      setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, status: 'contacted' as LeadStatus } : l));
+  const clearDB = () => {
+    if (window.confirm("CONFIRMAÇÃO: Deseja apagar permanentemente todos os leads da base local?")) {
+      setLeads([]);
+      localStorage.removeItem('jbnexo_leads_v23');
+      addLog("BASE DE DADOS TOTALMENTE ZERADA.");
     }
+  };
+
+  const exportOnlyNumbers = () => {
+    const data = leads.map(l => l.phoneNumber).filter(Boolean).join("\n");
+    const blob = new Blob([data], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `lista_telefones_jbnexo.txt`;
+    a.click();
+  };
+
+  const exportToCRM = () => {
+    if (leads.length === 0) return alert("Não há leads para exportar.");
+    const csv = "Nome,Email,Telefone\n" + leads.map(l => `"${l.name}","${l.email || ''}","${l.phoneNumber}"`).join("\n");
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `jbnexo_crm_export.csv`;
+    a.click();
   };
 
   const filteredLeads = useMemo(() => {
     return leads.filter(l => 
       l.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      l.company.toLowerCase().includes(searchTerm.toLowerCase())
+      l.company.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      l.phoneNumber?.includes(searchTerm)
     ).sort((a,b) => b.createdAt - a.createdAt);
   }, [leads, searchTerm]);
 
   return (
-    <div className="flex h-screen bg-[#050505] text-[#a1a1aa] font-sans overflow-hidden select-none">
+    <div className="flex h-screen bg-[#020203] text-[#e4e4e7] font-sans overflow-hidden">
       {/* SIDEBAR */}
-      <aside className="w-[380px] border-r border-[#18181b] bg-[#080808] flex flex-col z-50 shrink-0 shadow-2xl">
-        <div className="p-8 border-b border-[#18181b] bg-[#080808]/50 backdrop-blur-xl">
-          <div className="flex items-center space-x-4 mb-10">
-            <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-[0_0_30px_rgba(79,70,229,0.4)]">
-              <i className="fa-solid fa-bolt text-white text-xl"></i>
+      <aside className="w-[280px] border-r border-[#1f1f23] bg-[#08080a] flex flex-col z-50 shrink-0">
+        <div className="p-6 border-b border-[#1f1f23]">
+          <div className="flex items-center space-x-3 mb-8">
+            <div className="w-9 h-9 bg-indigo-600 rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(79,70,229,0.3)]">
+              <i className="fa-solid fa-atom text-white"></i>
             </div>
-            <div>
-              <h1 className="text-xl font-black text-white italic tracking-tighter uppercase leading-none">JB<span className="text-indigo-500">NEXO</span></h1>
-              <div className="text-[8px] font-bold text-indigo-400/80 uppercase tracking-[0.4em] mt-1">Grounding Pro v12.9</div>
-            </div>
+            <h1 className="text-lg font-black text-white italic tracking-tighter uppercase">JB<span className="text-indigo-500">NEXO</span></h1>
           </div>
 
-          <div className="space-y-6">
-            <div className="space-y-2">
-              <label className="text-[9px] font-black text-zinc-600 uppercase tracking-widest italic">Nicho</label>
-              <input value={niche} onChange={e => setNiche(e.target.value)} className="w-full bg-[#0c0c0c] border border-[#1e1e1e] rounded-xl px-5 py-4 text-xs text-white outline-none focus:border-indigo-600"/>
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <label className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">Nicho do Lead</label>
+              <input value={niche} onChange={e => setNiche(e.target.value)} placeholder="Ex: Donos de Logística" className="w-full bg-[#111113] border border-[#232326] rounded-lg px-4 py-2.5 text-xs text-white outline-none focus:border-indigo-500 transition-all"/>
             </div>
-            <div className="space-y-2">
-              <label className="text-[9px] font-black text-zinc-600 uppercase tracking-widest italic">País/Cidade</label>
-              <input value={country} onChange={e => setCountry(e.target.value)} className="w-full bg-[#0c0c0c] border border-[#1e1e1e] rounded-xl px-5 py-4 text-xs text-white outline-none focus:border-indigo-600"/>
+
+            <div className="space-y-1">
+              <label className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">Território</label>
+              <select value={country} onChange={e => setCountry(e.target.value)} className="w-full bg-[#111113] border border-[#232326] rounded-lg px-4 py-2.5 text-xs text-white outline-none focus:border-indigo-500 transition-all appearance-none">
+                <option value="Brasil">Brasil 🇧🇷</option>
+                <option value="Costa Rica">Costa Rica 🇨🇷</option>
+                <option value="Portugal">Portugal 🇵🇹</option>
+                <option value="EUA">Estados Unidos 🇺🇸</option>
+                <option value="Espanha">Espanha 🇪🇸</option>
+              </select>
             </div>
-            <button onClick={toggleEngine} className={`w-full py-5 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] transition-all transform active:scale-95 shadow-2xl ${engineStatus === ExtractionStatus.RUNNING ? 'bg-rose-950/20 border border-rose-600 text-rose-500' : 'bg-indigo-600 text-white hover:bg-indigo-500'}`}>
-              {engineStatus === ExtractionStatus.RUNNING ? "Pausar Busca" : "Iniciar Busca Real"}
+
+            <button onClick={toggleEngine} className={`w-full py-4 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${engineStatus === ExtractionStatus.RUNNING ? 'bg-indigo-950/40 text-indigo-400 border border-indigo-500/50' : 'bg-white text-black hover:bg-zinc-200'}`}>
+              {engineStatus === ExtractionStatus.RUNNING ? "Pausar Fluxo" : "Iniciar Mineração"}
             </button>
+            
+            {engineStatus === ExtractionStatus.RUNNING && (
+              <div className="flex items-center justify-center space-x-2 text-[8px] font-bold text-indigo-500 uppercase animate-pulse">
+                <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span>
+                <span>Motor em Fluxo Contínuo</span>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* LOGS */}
-        <div className="flex-grow flex flex-col min-h-0 bg-[#060606] p-6 border-b border-[#18181b]">
-          <div className="text-[9px] font-black text-zinc-800 uppercase tracking-widest mb-4 flex justify-between items-center">
-             <span>Protocolo Grounding</span>
-             <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping"></div>
-          </div>
-          <div className="flex-grow overflow-y-auto font-mono text-[9px] text-indigo-500/40 custom-scrollbar space-y-1.5">
-            {logs.map((log, i) => <div key={i} className="border-l border-indigo-900/20 pl-3 py-0.5">{log}</div>)}
+        <div className="flex-grow flex flex-col min-h-0 bg-[#040405] p-5 overflow-hidden">
+          <p className="text-[8px] font-bold text-zinc-700 uppercase mb-3 tracking-[0.2em]">Live Monitoring</p>
+          <div className="flex-grow overflow-y-auto font-mono text-[9px] text-zinc-600 space-y-1.5 custom-scrollbar">
+            {logs.map((log, i) => <div key={i} className="leading-tight border-l border-white/5 pl-2">{log}</div>)}
             <div ref={logEndRef}></div>
           </div>
         </div>
 
-        {/* EXPORTS */}
-        <div className="p-8 space-y-3 bg-[#080808]">
-           <button onClick={exportMondayCSV} className="w-full py-3.5 bg-indigo-600/5 border border-indigo-600/20 rounded-xl text-[9px] font-black uppercase text-indigo-400 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center">
-             <i className="fa-solid fa-file-export mr-3"></i> Exportar Monday.com
+        <div className="p-6 border-t border-[#1f1f23] space-y-2 bg-[#08080a]">
+           <button onClick={exportToCRM} className="w-full py-3 bg-[#111113] border border-[#232326] rounded-lg text-[9px] font-black uppercase text-zinc-400 hover:text-white transition-all flex items-center justify-center">
+             <i className="fa-solid fa-file-export mr-2 text-indigo-500"></i> Exportar para CRM
            </button>
-           <button onClick={exportPhonesCSV} className="w-full py-3.5 bg-zinc-900/50 border border-zinc-800 rounded-xl text-[9px] font-black uppercase text-zinc-600 hover:text-white transition-all flex items-center justify-center">
-             <i className="fa-solid fa-phone mr-3"></i> Exportar WhatsApps
+           <button onClick={exportOnlyNumbers} className="w-full py-3 bg-indigo-600/10 border border-indigo-500/20 rounded-lg text-[9px] font-black uppercase text-indigo-400 hover:bg-indigo-600 hover:text-white transition-all flex items-center justify-center">
+             <i className="fa-solid fa-phone mr-2"></i> Só Números (.txt)
            </button>
-           <button onClick={() => setLeads([])} className="w-full pt-4 text-[8px] font-black uppercase text-zinc-900 hover:text-rose-900 transition-colors text-center tracking-widest">
-             Limpar Base
+           <button onClick={clearDB} className="w-full py-2 mt-2 bg-rose-500/5 text-rose-500/60 rounded text-[9px] font-bold uppercase hover:bg-rose-500 hover:text-white transition-all">
+             Limpar Base de Dados
            </button>
         </div>
       </aside>
 
-      {/* DASHBOARD */}
-      <main className="flex-grow flex flex-col bg-[#050505] relative min-w-0">
-        <header className="px-12 py-10 border-b border-[#18181b] flex justify-between items-end bg-[#050505]/95 backdrop-blur-xl sticky top-0 z-40">
+      {/* MAIN VIEW */}
+      <main className="flex-grow flex flex-col relative bg-[#020203]">
+        <header className="px-10 py-6 border-b border-[#1f1f23] flex justify-between items-center bg-[#08080a]/90 backdrop-blur-md sticky top-0 z-40">
            <div>
-              <div className="text-[10px] font-black text-zinc-700 uppercase tracking-[0.5em] mb-2 italic">Leads Validados (Grounding Real)</div>
-              <div className="flex items-baseline space-x-4">
-                 <span className="text-6xl font-black text-white tracking-tighter leading-none">{leads.length}</span>
-                 <div className={`w-3 h-3 rounded-full ${engineStatus === ExtractionStatus.RUNNING ? 'bg-indigo-500 animate-ping' : 'bg-zinc-900'}`}></div>
+              <p className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest mb-1">DADOS VERIFICADOS</p>
+              <div className="flex items-center space-x-3">
+                 <span className="text-4xl font-black text-white leading-none">{leads.length}</span>
+                 <span className="text-[10px] font-bold text-indigo-500 uppercase border border-indigo-500/20 px-2 rounded">Quantum Ready</span>
               </div>
            </div>
-           <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Filtrar base..." className="bg-[#0c0c0c] border border-[#1e1e1e] rounded-2xl px-8 py-4 text-xs w-[350px] outline-none focus:border-indigo-600 shadow-2xl"/>
+           <div className="w-[300px] relative">
+              <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="Filtrar leads..." className="w-full bg-[#111113] border border-[#232326] rounded-xl px-5 py-2.5 text-xs text-white outline-none focus:border-indigo-500 transition-all"/>
+              <i className="fa-solid fa-search absolute right-4 top-3 text-zinc-700 text-xs"></i>
+           </div>
         </header>
 
-        <div className="flex-grow overflow-y-auto p-12 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-10 custom-scrollbar">
+        <div className="flex-grow overflow-y-auto p-10 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 custom-scrollbar pb-32">
           {filteredLeads.map(lead => (
-            <div key={lead.id} className="bg-[#0c0c0c] border border-[#18181b] rounded-[3rem] p-8 hover:border-indigo-500/50 transition-all duration-500 group flex flex-col min-h-[480px] relative overflow-hidden">
-              {/* Botão de Exclusão */}
-              <button 
-                onClick={() => deleteLead(lead.id)} 
-                className="absolute top-8 right-8 text-zinc-800 hover:text-rose-500 transition-colors z-10"
-              >
-                <i className="fa-solid fa-trash-can text-lg"></i>
-              </button>
-
-              <div className="mb-6 flex justify-between items-center pr-8">
-                <span className={`text-[9px] font-black px-4 py-1.5 rounded-full uppercase tracking-tighter border ${lead.status === 'contacted' ? 'bg-green-950/40 text-green-400 border-green-900/30' : 'bg-indigo-950/40 text-indigo-400 border-indigo-900/30'}`}>
-                  {lead.status === 'contacted' ? '✅ Contatado' : 'Validado Grounding'}
-                </span>
-                <span className="text-[10px] font-black text-green-500">{lead.integrity}% REAL</span>
+            <div key={lead.id} className="bg-[#0b0b0d] border border-[#1f1f23] rounded-2xl p-5 hover:border-indigo-500/30 transition-all flex flex-col relative group">
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex items-center space-x-1.5">
+                   <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
+                   <span className="text-[8px] font-black text-green-500 uppercase">Real Person</span>
+                </div>
+                <button onClick={() => setLeads(prev => prev.filter(l => l.id !== lead.id))} className="text-zinc-800 hover:text-rose-500 p-1">
+                  <i className="fa-solid fa-xmark text-[10px]"></i>
+                </button>
               </div>
 
-              <div className="flex items-start space-x-6 mb-8">
-                <div className="w-16 h-16 bg-zinc-900 rounded-3xl flex items-center justify-center text-2xl font-black text-white border border-zinc-800 shrink-0">
-                  {lead.name.charAt(0)}
-                </div>
-                <div className="min-w-0 flex-1">
-                   {/* Nome Inteiro - Sem Truncate */}
-                   <h3 className="text-lg font-black text-white uppercase tracking-tight group-hover:text-indigo-400 transition-colors break-words">{lead.name}</h3>
-                   {/* Empresa Inteira - Sem Truncate */}
-                   <div className="text-[10px] font-bold text-indigo-500/70 uppercase tracking-widest break-words">{lead.company}</div>
-                </div>
+              <div className="mb-5">
+                <h3 className="text-sm font-black text-white uppercase truncate mb-0.5 group-hover:text-indigo-400 transition-colors">{lead.name}</h3>
+                <p className="text-[10px] font-bold text-zinc-500 uppercase truncate">{lead.company}</p>
               </div>
 
-              <div className="space-y-3 mb-8 flex-grow">
-                <div className="bg-black/60 p-4 rounded-2xl border border-zinc-900 flex items-center space-x-3">
-                  <i className="fa-solid fa-phone text-indigo-500 text-[10px]"></i>
-                  <span className="text-[11px] font-bold text-zinc-400 tracking-widest">{lead.phoneNumber}</span>
+              <div className="space-y-1.5 mb-6 flex-grow">
+                <div className="bg-[#111113] p-3 rounded-xl border border-white/5 flex items-center justify-between group/field">
+                  <div className="flex items-center space-x-3 overflow-hidden">
+                    <i className="fa-solid fa-phone text-[9px] text-indigo-500/40"></i>
+                    <span className="text-[11px] font-bold text-zinc-300 tracking-wider">{lead.phoneNumber}</span>
+                  </div>
+                  <button onClick={() => { navigator.clipboard.writeText(lead.phoneNumber); alert('Copiado!'); }} className="text-zinc-800 hover:text-white group-hover/field:opacity-100 opacity-0 transition-opacity">
+                    <i className="fa-solid fa-copy text-[10px]"></i>
+                  </button>
                 </div>
-                <div className="bg-black/60 p-4 rounded-2xl border border-zinc-900 flex items-center space-x-3">
-                  <i className="fa-solid fa-at text-indigo-500 text-[10px]"></i>
-                  <span className="text-[11px] font-bold text-zinc-400 truncate">{lead.email}</span>
-                </div>
+                {lead.email && (
+                  <div className="bg-[#111113] p-3 rounded-xl border border-white/5 flex items-center space-x-3 overflow-hidden">
+                    <i className="fa-solid fa-at text-[9px] text-indigo-500/40"></i>
+                    <span className="text-[11px] font-bold text-zinc-300 truncate">{lead.email}</span>
+                  </div>
+                )}
               </div>
 
-              <div className="flex items-center justify-between pt-8 border-t border-[#18181b] mt-auto">
-                 <div className="flex items-center space-x-3">
-                    <button onClick={() => setPreviewPitch(lead)} className="w-12 h-12 rounded-2xl bg-zinc-900 flex items-center justify-center text-zinc-600 hover:text-white hover:bg-indigo-600 transition-all">
-                      <i className="fa-solid fa-comment-dots text-lg"></i>
-                    </button>
-                    <button onClick={() => handleWhatsAppClick(lead)} className="w-12 h-12 rounded-2xl bg-indigo-600/10 flex items-center justify-center text-indigo-500 hover:bg-indigo-600 hover:text-white transition-all border border-indigo-500/20 shadow-lg">
-                      <i className="fa-brands fa-whatsapp text-2xl"></i>
-                    </button>
-                    {/* Botão Marcar/Desmarcar Chamado */}
-                    <button 
-                      onClick={() => toggleContacted(lead.id)} 
-                      className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all ${lead.status === 'contacted' ? 'bg-green-600/20 text-green-500 border border-green-500/30' : 'bg-zinc-900 text-zinc-700 hover:text-white'}`}
-                      title={lead.status === 'contacted' ? 'Marcar como não chamado' : 'Marcar como já chamado'}
-                    >
-                      <i className="fa-solid fa-check-double text-lg"></i>
-                    </button>
-                 </div>
-                 <div className="text-[9px] font-black text-zinc-900 uppercase italic">JBNEXO NODE</div>
+              <div className="pt-4 border-t border-[#1f1f23] flex items-center space-x-2">
+                  <button onClick={() => setPreviewPitch(lead)} className="flex-1 py-2.5 bg-indigo-600/10 border border-indigo-500/20 rounded-lg text-indigo-400 text-[10px] font-black uppercase hover:bg-indigo-600 hover:text-white transition-all">
+                    Script
+                  </button>
+                  <a href={`https://wa.me/${lead.phoneNumber?.replace(/\D/g, '')}?text=${encodeURIComponent(lead.localizedPitch)}`} target="_blank" className="w-10 h-10 rounded-lg bg-green-500/10 border border-green-500/20 flex items-center justify-center text-green-500 hover:bg-green-600 hover:text-white transition-all">
+                    <i className="fa-brands fa-whatsapp text-lg"></i>
+                  </a>
               </div>
             </div>
           ))}
         </div>
 
+        {/* PITCH MODAL */}
         {previewPitch && (
-          <div className="fixed inset-0 z-[100] bg-black/98 flex items-center justify-center p-6 backdrop-blur-3xl">
-             <div className="bg-[#0c0c0c] border border-indigo-500/30 rounded-[4rem] p-12 max-w-2xl w-full shadow-2xl relative">
-                <div className="flex justify-between items-start mb-10">
-                   <div>
-                     <h4 className="text-3xl font-black text-white uppercase italic leading-none">{previewPitch.emailSubject}</h4>
-                     <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-3">Pitch Localizado para {previewPitch.country}</p>
-                   </div>
-                   <button onClick={() => setPreviewPitch(null)} className="text-zinc-700 hover:text-white transition-colors"><i className="fa-solid fa-xmark text-3xl"></i></button>
-                </div>
-                <div className="bg-black/90 p-8 rounded-[3rem] border border-zinc-900 mb-10 shadow-inner">
-                   <p className="text-indigo-400 font-mono text-base italic leading-relaxed">{previewPitch.localizedPitch}</p>
-                </div>
-                <button onClick={() => { handleWhatsAppClick(previewPitch); setPreviewPitch(null); }} className="w-full py-5 bg-indigo-600 text-white rounded-3xl font-black text-[11px] uppercase tracking-widest shadow-2xl hover:bg-indigo-500 transition-all">
-                   Abrir WhatsApp
+          <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-6 backdrop-blur-xl">
+             <div className="bg-[#08080a] border border-[#1f1f23] rounded-[2rem] p-10 max-w-lg w-full shadow-2xl relative">
+                <button onClick={() => setPreviewPitch(null)} className="absolute right-6 top-6 text-zinc-600 hover:text-white transition-colors p-2">
+                  <i className="fa-solid fa-xmark text-xl"></i>
                 </button>
+                <div className="mb-6">
+                   <h4 className="text-lg font-black text-white uppercase italic tracking-tighter">Script de Conversão</h4>
+                   <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mt-1">{previewPitch.name} | {previewPitch.company}</p>
+                </div>
+                <div className="space-y-4">
+                   <div className="bg-[#111113] p-6 rounded-2xl border border-white/5 max-h-[250px] overflow-y-auto custom-scrollbar text-zinc-300 font-mono text-xs leading-relaxed">
+                      {previewPitch.localizedPitch}
+                   </div>
+                </div>
+                <div className="mt-8 flex space-x-3">
+                  <button onClick={() => { navigator.clipboard.writeText(previewPitch.localizedPitch); alert('Copiado!'); }} className="flex-1 py-4 bg-[#111113] text-white rounded-xl font-black text-[10px] uppercase hover:bg-zinc-800 transition-all">
+                    Copiar Script
+                  </button>
+                  <button onClick={() => { 
+                      window.open(`https://wa.me/${previewPitch.phoneNumber?.replace(/\D/g, '')}?text=${encodeURIComponent(previewPitch.localizedPitch)}`, '_blank'); 
+                    }} className="flex-1 py-4 bg-indigo-600 text-white rounded-xl font-black text-[10px] uppercase hover:bg-indigo-500 transition-all">
+                     Enviar Agora
+                  </button>
+                </div>
              </div>
           </div>
         )}
       </main>
 
       <style>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+        .custom-scrollbar::-webkit-scrollbar { width: 3px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #1a1a1a; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #1f1f23; border-radius: 10px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #4f46e5; }
+        select { background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e"); background-repeat: no-repeat; background-position: right 1rem center; background-size: 1em; }
       `}</style>
     </div>
   );

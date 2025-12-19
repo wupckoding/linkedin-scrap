@@ -1,6 +1,14 @@
 
 export type LeadStatus = 'new' | 'contacted' | 'negotiating' | 'closed' | 'rejected';
 
+/**
+ * Interface representing a source from Google Search grounding.
+ */
+export interface GroundingSource {
+  title: string;
+  url: string;
+}
+
 export interface Lead {
   id: string;
   name: string;
@@ -21,6 +29,7 @@ export interface Lead {
   integrity: number; 
   localizedPitch: string;
   emailSubject: string; // Novo campo para assunto do e-mail
+  sources?: GroundingSource[];
 }
 
 export enum ExtractionStatus {
